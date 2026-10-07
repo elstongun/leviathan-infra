@@ -34,8 +34,8 @@ All names are `levi/<env>/<name>`, for example `levi/production/stripe-secret-ke
 | `api-key-pepper` | Server-side pepper mixed into customer API-key hashes | Generated | `scripts/generate-secrets.sh <env>` | api, edge |
 | `workos-cookie-password` | Encrypts the browser session cookie | Generated | `scripts/generate-secrets.sh <env>` | web |
 | `workos-api-key` | WorkOS API key (`sk_…`) | WorkOS dashboard → the matching environment (Staging or Production) → API Keys | `scripts/put-secret.sh <env> workos-api-key` | api, web |
-| `stripe-secret-key` | Stripe **restricted** key (`rk_test_…` in staging, `rk_live_…` in production) | Stripe dashboard → Developers → API keys → Create restricted key (permissions below) | `scripts/put-secret.sh <env> stripe-secret-key` | api, ops, workers |
-| `stripe-webhook-secret` | Signing secret (`whsec_…`) that proves webhooks really came from Stripe | Created by `levi-ops stripe-setup` | Stored automatically by `scripts/ops.sh <env> stripe-setup … --store-webhook-secret levi/<env>/stripe-webhook-secret` | api, ops, workers |
+| `stripe-secret-key` | Stripe **restricted** key (`rk_test_…` in staging, `rk_live_…` in production) | Stripe dashboard → Developers → API keys → Create restricted key (permissions below) | `scripts/put-secret.sh <env> stripe-secret-key` | api, ops |
+| `stripe-webhook-secret` | Signing secret (`whsec_…`) that proves webhooks really came from Stripe | Created by `levi-ops stripe-setup` | Stored automatically by `scripts/ops.sh <env> stripe-setup … --store-webhook-secret levi/<env>/stripe-webhook-secret` | api, ops |
 | RDS master credentials (`rds!db-…`) | The database administrator login | Created, stored and rotated by RDS itself | Nothing to do | only `levi-ops db-bootstrap` |
 
 What is **not** secret, and where it goes instead:
@@ -96,10 +96,9 @@ restricted key**), once in test mode for staging and once in live mode for
 production. Give it **Write** on:
 
 - Customers
-- Checkout Sessions
+- Checkout Sessions (the subscription, and one-time prepaid-credit purchases)
 - Customer portal (billing portal sessions)
 - Subscriptions
-- Billing meter events (usage reporting) and Billing meters
 - Products, Prices and Coupons (used only by `stripe-setup`)
 - Webhook endpoints (used only by `stripe-setup`)
 

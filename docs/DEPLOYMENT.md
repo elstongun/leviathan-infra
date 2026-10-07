@@ -107,11 +107,13 @@ scripts/ops.sh staging stripe-setup \
   --store-webhook-secret levi/staging/stripe-webhook-secret
 ```
 
-This creates (or finds) the Starter product with the $10 base price, a
-separate usage product with the two metered prices (so the coupon can never
-discount overage), the meters, the `FOUNDING100` coupon (100% off the base
-fee for 3 months, 50 redemptions) and the webhook endpoint; the webhook's
-signing secret goes straight into Secrets Manager. Re-run the platform **Deploy** workflow
+This creates (or finds) the Starter product with the $10 base price
+(charged at the start of each period), the `FOUNDING100` coupon (100% off
+the base fee for 3 months, 50 redemptions) and the webhook endpoint; the
+webhook's signing secret goes straight into Secrets Manager. There are no
+metered prices: usage above the allowance is paid from prepaid credits,
+bought as one-time Checkout payments, and requests are refused when the
+allowance and credits run out. Re-run the platform **Deploy** workflow
 so `levi-api` and the workers load it. Running it again later is safe.
 
 In the Stripe dashboard: Settings → Billing → **Customer portal**: allow

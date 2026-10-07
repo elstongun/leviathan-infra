@@ -33,10 +33,8 @@ locals {
     }
     worker = {
       secrets = {
-        PGPASSWORD            = local.secret_arn["db-app-password"]
-        LEVI_INTERNAL_TOKEN   = local.secret_arn["internal-token"]
-        STRIPE_SECRET_KEY     = local.secret_arn["stripe-secret-key"]
-        STRIPE_WEBHOOK_SECRET = local.secret_arn["stripe-webhook-secret"]
+        PGPASSWORD          = local.secret_arn["db-app-password"]
+        LEVI_INTERNAL_TOKEN = local.secret_arn["internal-token"]
       }
     }
   }
