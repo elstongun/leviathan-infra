@@ -1,0 +1,38 @@
+# Checks only: formatting and validation. Applies are run by a person from a
+# laptop with AWS SSO credentials, after reading the plan (docs/DEPLOYMENT.md).
+
+name: Terraform
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.16.5
+      - run: terraform fmt -check -recursive
+      - name: Validate
+        run: |
+          for dir in bootstrap envs/staging envs/production; do
+            terraform -chdir="$dir" init -backend=false -input=false
+            terraform -chdir="$dir" validate
+          done
+      - name: Boot script renders to valid bash
+        run: |
+          cd "$(mktemp -d)"
+          for role in cell worker; do
+            if [ "$role" = cell ]; then vol='"vol-1"'; eip='""'; port=8083; else vol='""'; eip='"eipalloc-1"'; port=0; fi
+            echo 'jsonencode(templatefile("'"$GITHUB_WORKSPACE"'/modules/stack/templates/boot.sh.tftpl", { role = "'"$role"'", service = "levi-x", region = "us-east-1", env_name = "staging", log_group = "/levi/staging/x", image_param = "/p", image_repo = "1.dkr.ecr.us-east-1.amazonaws.com/levi-platform", env_vars = { A = "b" }, secrets = { S = "arn" }, volume_id = '"$vol"', eip_alloc = '"$eip"', port = '"$port"' }))' \
+              | terraform console \
+              | python3 -c 'import sys, json; print(json.loads(json.loads(sys.stdin.read())))' > "boot-$role.sh"
+            bash -n "boot-$role.sh"
+          done

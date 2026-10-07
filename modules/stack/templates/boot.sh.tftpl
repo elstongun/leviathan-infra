@@ -1,0 +1,112 @@
+#!/bin/bash
+# Boot script for a Leviathan ${role} (rendered by Terraform; safe to rerun).
+set -euo pipefail
+exec > >(tee -a /var/log/levi-boot.log) 2>&1
+
+REGION="${region}"
+mkdir -p /opt/levi
+dnf install -y docker
+systemctl enable --now docker
+
+imds() {
+  local token
+  token=$(curl -sf -X PUT http://169.254.169.254/latest/api/token -H "X-aws-ec2-metadata-token-ttl-seconds: 60")
+  curl -sf -H "X-aws-ec2-metadata-token: $token" "http://169.254.169.254/latest/meta-data/$1"
+}
+INSTANCE_ID=$(imds instance-id)
+PRIVATE_IP=$(imds local-ipv4)
+AZ=$(imds placement/availability-zone)
+
+%{ if volume_id != "" ~}
+# The cell's data volume outlives the instance: wait until the old instance
+# lets go of it, attach it here, then mount it on /data.
+VOLUME_ID="${volume_id}"
+for _ in $(seq 1 120); do
+  ATTACHED=$(aws ec2 describe-volumes --region "$REGION" --volume-ids "$VOLUME_ID" --query 'Volumes[0].Attachments[0].InstanceId' --output text)
+  [ "$ATTACHED" = "$INSTANCE_ID" ] && break
+  STATE=$(aws ec2 describe-volumes --region "$REGION" --volume-ids "$VOLUME_ID" --query 'Volumes[0].State' --output text)
+  if [ "$STATE" = "available" ]; then
+    aws ec2 attach-volume --region "$REGION" --volume-id "$VOLUME_ID" --instance-id "$INSTANCE_ID" --device /dev/sdf >/dev/null || true
+  fi
+  sleep 5
+done
+SERIAL="$${VOLUME_ID/-/}"
+DEVICE=""
+for _ in $(seq 1 60); do
+  DEVICE=$(lsblk -dpno NAME,SERIAL | awk -v s="$SERIAL" '$2 == s {print $1}')
+  [ -n "$DEVICE" ] && break
+  sleep 2
+done
+[ -n "$DEVICE" ] || { echo "data volume $VOLUME_ID did not appear"; exit 1; }
+blkid "$DEVICE" >/dev/null || mkfs.xfs "$DEVICE"
+mkdir -p /data
+grep -q " /data " /etc/fstab || echo "UUID=$(blkid -s UUID -o value "$DEVICE") /data xfs defaults,nofail 0 2" >> /etc/fstab
+mountpoint -q /data || mount /data
+%{ else ~}
+mkdir -p /data
+%{ endif ~}
+install -d -o 10001 -g 10001 /data/cell /data/work
+
+%{ if eip_alloc != "" ~}
+# Customers allowlist this address; all connector traffic leaves from it.
+aws ec2 associate-address --region "$REGION" --allocation-id "${eip_alloc}" --instance-id "$INSTANCE_ID" --allow-reassociation >/dev/null
+%{ endif ~}
+
+# Non-secret settings. Secrets are fetched by deploy.sh on every deploy.
+cat > /opt/levi/static.env <<'EOF'
+%{ for k, v in env_vars ~}
+%{ if v != "" ~}
+${k}=${v}
+%{ endif ~}
+%{ endfor ~}
+EOF
+echo "LEVI_AZ=$AZ" >> /opt/levi/static.env
+%{ if role == "cell" ~}
+echo "LEVI_CELL_ADDRESS=http://$PRIVATE_IP:${port}" >> /opt/levi/static.env
+%{ endif ~}
+
+cat > /opt/levi/deploy.sh <<'DEPLOY'
+#!/bin/bash
+# Pull the image tag recorded in SSM, refresh secrets, restart the container.
+# CI runs this through SSM Run Command, one instance at a time.
+set -euo pipefail
+REGION="${region}"
+TAG=$(aws ssm get-parameter --region "$REGION" --name "${image_param}" --query Parameter.Value --output text)
+IMAGE="${image_repo}:$TAG"
+umask 077
+# Assigned one by one so a missing or empty secret stops the deploy (set -e).
+%{ for k, arn in secrets ~}
+V_${k}=$(aws secretsmanager get-secret-value --region "$REGION" --secret-id '${arn}' --query SecretString --output text)
+%{ endfor ~}
+{
+  cat /opt/levi/static.env
+%{ for k, arn in secrets ~}
+  printf '%s=%s\n' "${k}" "$V_${k}"
+%{ endfor ~}
+} > /opt/levi/env.tmp
+mv /opt/levi/env.tmp /opt/levi/env
+aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "${split("/", image_repo)[0]}" >/dev/null
+docker pull --quiet "$IMAGE"
+docker stop --time 30 levi >/dev/null 2>&1 || true
+docker rm levi >/dev/null 2>&1 || true
+docker run -d --name levi --restart unless-stopped --network host \
+  --env-file /opt/levi/env \
+  -v /data:/data \
+  --log-driver awslogs \
+  --log-opt awslogs-region="$REGION" \
+  --log-opt awslogs-group="${log_group}" \
+  --log-opt awslogs-stream="$(hostname)" \
+  "$IMAGE" ${service} >/dev/null
+%{ if port != 0 ~}
+for _ in $(seq 1 60); do
+  curl -sf "http://127.0.0.1:${port}/healthz" >/dev/null && break
+  sleep 2
+done
+curl -sf "http://127.0.0.1:${port}/healthz" >/dev/null || { docker logs --tail 50 levi; echo "${service} is not healthy"; exit 1; }
+%{ endif ~}
+docker image prune -af --filter "until=168h" >/dev/null || true
+echo "${role} running $IMAGE"
+DEPLOY
+chmod 700 /opt/levi/deploy.sh
+
+/opt/levi/deploy.sh || echo "no deployable image yet; the first CI deploy starts ${service}"
