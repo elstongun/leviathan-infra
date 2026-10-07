@@ -124,7 +124,7 @@ In the WorkOS environment matching this deployment (Staging / Production):
 
 - **Redirects:** redirect URI `https://app.<domain>/auth/callback`; sign-in
   endpoint `https://app.<domain>/auth/sign-in`; sign-out redirect
-  `https://app.<domain>/sign-in`.
+  `https://app.<domain>/` (the landing page).
 - **Authentication:** enable GitHub, Google and Microsoft OAuth. For
   production, use your own OAuth apps (GitHub OAuth App, Google Cloud OAuth
   client with a published consent screen, Microsoft Entra multi-tenant app);

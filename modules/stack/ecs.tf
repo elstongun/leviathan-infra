@@ -83,6 +83,8 @@ locals {
     web = {
       LEVI_CONTROL_URL    = local.control_url
       LEVI_APP_URL        = local.app_url
+      LEVI_API_URL        = local.api_url
+      LEVI_CALENDLY_URL   = var.calendly_url
       WORKOS_CLIENT_ID    = var.workos_client_id
       WORKOS_REDIRECT_URI = "${local.app_url}/auth/callback"
     }
