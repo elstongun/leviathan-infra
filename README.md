@@ -18,6 +18,12 @@ docs/
 
 Start with [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
+Markdown and plain-text indexing uses the existing upload path: the web/API
+streams the original document to the private blob bucket, `levi-sync` turns it
+into section records, and cells serve the resulting index. It adds no AWS
+resources, third-party model calls or secrets; unusually large document
+workloads are handled with the existing worker and cell sizing controls.
+
 ## Scaling
 
 All capacity is in `envs/production/terraform.tfvars` (`cell_count`,
